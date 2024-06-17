@@ -1,0 +1,151 @@
+//ph
+#define SensorPin A0            //pH meter Analog output to Arduino Analog Input 0
+#define Offset 1           //deviation compensate
+#define samplingInterval 20
+#define printInterval 800
+#define ArrayLenth  40    //times of collection
+int pHArray[ArrayLenth];   //Store the average value of the sensor feedback
+int pHArrayIndex=0;
+
+//orp
+#define VOLTAGE 5.00    //system voltage
+#define OFFSET 0        //zero drift voltage         //operating instructions
+double orpValue;
+#define orpPin A3 
+int orpArray[ArrayLenth];
+int orpArrayIndex=0;
+
+//temp
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#define ONE_WIRE_BUS 4
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
+float temp;
+
+
+//wifi
+#include <WiFiS3.h>
+char ssid[] = "Redmi Note 10 Pro";
+char pass[] = "rasengan";
+
+//thingspeak
+#include "ThingSpeak.h"
+//int status = WL_IDLE_STATUS;
+WiFiClient client;
+
+void setup() 
+{
+  Serial.begin(9600);
+  WiFi.begin(ssid, pass);
+  sensors.begin();
+  ThingSpeak.begin(client);
+}
+
+void loop() {
+
+  static unsigned long samplingTime = millis();
+  static unsigned long printTime = millis();
+  static float pHValue,voltage;
+  if(millis()-samplingTime > samplingInterval)
+  {
+    //PH
+      pHArray[pHArrayIndex++]=analogRead(SensorPin);
+      if(pHArrayIndex==ArrayLenth)pHArrayIndex=0;
+      voltage = avergearray(pHArray, ArrayLenth)*5.0/1024;
+      pHValue = 3.5*voltage+Offset;
+      samplingTime=millis();
+
+    //ORP
+      orpArray[orpArrayIndex++]=analogRead(orpPin);    //read an analog value every 20ms
+    if (orpArrayIndex==ArrayLenth) {
+      orpArrayIndex=0;
+    }
+    orpValue=((30*(double)VOLTAGE*1000)-(75*avergearray(orpArray, ArrayLenth)*VOLTAGE*1000/1024))/75-OFFSET;
+
+  }
+  if(millis() - printTime > printInterval)   //Every 800 milliseconds, print a numerical, convert the state of the LED indicator
+  {
+    //PH
+    Serial.print("Voltage:");
+        Serial.print(voltage,2);
+        Serial.print("    pH value: ");
+        Serial.println(pHValue,2);
+        ThingSpeakWrite(pHValue,1);
+        
+        printTime=millis();
+    //ORP
+    Serial.print("ORP: ");
+    Serial.print((int)orpValue);
+    Serial.println("mV");
+    ThingSpeakWrite(orpValue,4);
+
+    //TEMP
+    sensors.requestTemperatures(); 
+  Serial.print("Celsius temperature: ");
+  temp =sensors.getTempCByIndex(0);
+  Serial.print(sensors.getTempCByIndex(0)); 
+  Serial.print(" - Fahrenheit temperature: ");
+  Serial.println(sensors.getTempFByIndex(0));
+  delay(1000);
+  ThingSpeakWrite(temp,3);
+  } 
+ 
+}
+
+//average
+
+double avergearray(int* arr, int number){
+  int i;
+  int max,min;
+  double avg;
+  long amount=0;
+  if(number<=0){
+    Serial.println("Error number for the array to avraging!/n");
+    return 0;
+  }
+  if(number<5){   //less than 5, calculated directly statistics
+    for(i=0;i<number;i++){
+      amount+=arr[i];
+    }
+    avg = amount/number;
+    return avg;
+  }else{
+    if(arr[0]<arr[1]){
+      min = arr[0];max=arr[1];
+    }
+    else{
+      min=arr[1];max=arr[0];
+    }
+    for(i=2;i<number;i++){
+      if(arr[i]<min){
+        amount+=min;        //arr<min
+        min=arr[i];
+      }else {
+        if(arr[i]>max){
+          amount+=max;    //arr>max
+          max=arr[i];
+        }else{
+          amount+=arr[i]; //min<=arr<=max
+        }
+      }//if
+    }//for
+    avg = (double)amount/(number-2);
+  }//if
+  return avg;
+}
+
+//THING SPEAK
+void ThingSpeakWrite(float channelValue,int channelField)
+{
+unsigned long myChannelNumber = 2515516;
+const char * myWriteAPIKey = "DP1OGF1G1F5GFL8M";
+//int channelField = 1;
+int x = ThingSpeak.writeField(myChannelNumber, channelField, channelValue, myWriteAPIKey);
+if(x == 0){
+Serial.println("Channel updated successfully.");
+}
+else{
+Serial.println("Problem updating channel. HTTP error code " + String(x));
+}
+}
